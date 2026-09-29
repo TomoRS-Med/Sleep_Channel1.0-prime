@@ -9,9 +9,10 @@ const number = value => {
   if (!Number.isFinite(n) || String(value).trim() === "") throw Error("Enter a finite number");
   return n;
 };
-let meta, state, groups = [], points = {}, activeJob = null, selectedJob = null;
+let meta, state, currentSpec, groups = [], points = {}, activeJob = null, selectedJob = null;
 let resultPage = 0, lastResultKey = "", inspectParent = null;
 const jobs = new Map();
+const savedModels = {};
 
 async function api(path, body) {
   const response = await fetch(path, {method: body === undefined ? "GET" : "POST",
@@ -32,6 +33,12 @@ function fileUrl(jobId, relative) {
   return `/api/file/${jobId}/${relative.split("/").map(encodeURIComponent).join("/")}?token=${encodeURIComponent(token)}`;
 }
 function showTab(name) {
+  if (state) {
+    try {
+      snapshotValues();
+      if (name === "search") renderAxes();
+    } catch (exc) {error(exc);return}
+  }
   document.querySelectorAll(".panel").forEach(node => node.classList.toggle("visible", node.id === name));
   document.querySelectorAll("#tabs button").forEach(node => node.classList.toggle("selected", node.dataset.tab === name));
 }
@@ -40,8 +47,19 @@ function chooseOptions(select, items, value) {
   if (items.includes(value)) select.value = value;
 }
 
+function copySearchEditsToValues() {
+  const targets = new Map([...document.querySelectorAll("#parameters tbody tr")]
+    .map(row => [row.dataset.key, row]));
+  for (const row of document.querySelectorAll("#search-parameters tbody tr")) {
+    const target = targets.get(row.dataset.key);
+    if (!target) continue;
+    for (const field of ["value", "low", "high", "dist", "points"])
+      target.querySelector(`.${field}`).value = row.querySelector(`.${field}`).value;
+  }
+}
 function snapshotValues() {
   if (!state) return;
+  if ($("#search").classList.contains("visible")) copySearchEditsToValues();
   for (const row of document.querySelectorAll("#parameters tbody tr")) {
     const key = row.dataset.key;
     state.parameters[key] = number(row.querySelector(".value").value);
@@ -57,6 +75,7 @@ function snapshotValues() {
 }
 function displaySpec(spec, keepValues=false) {
   const old = state;
+  currentSpec = spec;
   state = {role:spec.role, model:spec.model, composition:spec.composition,
     custom_modules:spec.custom_modules, parameters:{...spec.parameters}, fixed:{...spec.fixed},
     ranges:{...spec.ranges}, disabled_channels:[]};
@@ -72,8 +91,10 @@ function displaySpec(spec, keepValues=false) {
   points = Object.fromEntries(Object.keys(state.parameters).map(key =>
     [key, keepValues && key in points ? points[key] : 100]));
   groups = [];
+  $("#search-parameters tbody").replaceChildren();
   $("#role").value = spec.role;
   chooseOptions($("#model"), meta.roles[spec.role], spec.model);
+  savedModels[spec.role] = spec.model;
   renderAll(spec);
 }
 async function loadModel() {
@@ -92,6 +113,7 @@ async function reconfigure(config, keepValues=true, useModuleValues=false) {
       state.ranges[parameter.name] = spec.ranges[parameter.name];
     }
     renderParameters(spec);
+    renderAxes();
   }
   notice("Model configuration updated; search combinations reset");
 }
@@ -129,7 +151,8 @@ function renderParameters(spec) {
       <td><input class="high" type="number" step="any" value="${escapeHtml(hi)}"></td>
       <td><select class="dist">${["log","uniform","neglog"].map(d => `<option value="${d}" ${d===dist?"selected":""}>${d}</option>`).join("")}</select></td>
       <td><input class="points" type="number" min="1" max="1000" value="${points[key]}"></td>
-      <td>${escapeHtml(unit)}</td><td>${off?"Off":key in channels?"On":"Custom"}</td></tr>`;
+      <td>${escapeHtml(unit)}</td><td>${JSON.stringify(state.ranges[key])===JSON.stringify(spec.ranges[key])?"Default bounds":"Edited"}</td>
+      <td>${off?"Off":key in channels?"On":"Custom"}</td></tr>`;
   }).join("");
 }
 function renderFixed(spec) {
@@ -149,12 +172,25 @@ function renderBuilder(spec) {
       `<option value="${escapeHtml(name)}" ${selected[key]===name?"selected":""}>${escapeHtml(name)}</option>`).join("")}</select></td></tr>`).join("");
 }
 function renderAxes() {
-  const selected = new Set([...document.querySelectorAll("#axes input:checked")].map(node => node.value));
-  $("#axes").innerHTML = Object.keys(state.parameters).map(key =>
-    `<label><input type="checkbox" value="${escapeHtml(key)}" ${selected.has(key)?"checked":""} ${state.disabled_channels.includes(key)?"disabled":""}>${escapeHtml(key)}</label>`).join("");
+  const selected = new Set([...document.querySelectorAll("#search-parameters .axis:checked")].map(node => node.value));
+  const channels = currentSpec.channels;
+  $("#search-parameters tbody").innerHTML = Object.entries(state.parameters).map(([key,value]) => {
+    const [lo,hi,dist,unit] = state.ranges[key];
+    const off = state.disabled_channels.includes(key);
+    return `<tr data-key="${escapeHtml(key)}" class="${off?"off":""}">
+      <td><input class="axis" type="checkbox" value="${escapeHtml(key)}" ${selected.has(key)&&!off?"checked":""} ${off?"disabled":""}></td>
+      <td><b>${escapeHtml(key)}</b></td>
+      <td><input class="value" type="number" step="any" value="${escapeHtml(value)}"></td>
+      <td><input class="low" type="number" step="any" value="${escapeHtml(lo)}"></td>
+      <td><input class="high" type="number" step="any" value="${escapeHtml(hi)}"></td>
+      <td><select class="dist">${["log","uniform","neglog"].map(d=>`<option value="${d}" ${d===dist?"selected":""}>${d}</option>`).join("")}</select></td>
+      <td><input class="points" type="number" min="1" max="1000" value="${points[key]}"></td>
+      <td>${escapeHtml(unit)}</td><td>${off?"Off":key in channels?"On":"Custom"}</td>
+      <td><button class="reset-row" type="button">Reset</button></td></tr>`;
+  }).join("");
   preview();
 }
-function chosenAxes() { return [...document.querySelectorAll("#axes input:checked")].map(node => node.value); }
+function chosenAxes() { return [...document.querySelectorAll("#search-parameters .axis:checked")].map(node => node.value); }
 function conditionCount(kind, keys, counts) {
   if (!keys.length) throw Error("Select one or more parameters");
   const values = keys.map(key => counts[key]);
@@ -169,9 +205,12 @@ function preview() {
   try {
     const keys = chosenAxes(), kind = $("#kind").value;
     const current = {...points};
-    for (const row of document.querySelectorAll("#parameters tbody tr")) current[row.dataset.key] = number(row.querySelector(".points").value);
+    for (const row of document.querySelectorAll("#search-parameters tbody tr")) current[row.dataset.key] = number(row.querySelector(".points").value);
     const total = conditionCount(kind, keys, current);
-    $("#preview").textContent = `${keys.join(", ")} | ${total.toLocaleString()} ${kind === "random" ? "paired random draws" : "sweep conditions"}`;
+    const levels=keys.map(key=>current[key]);
+    $("#preview").textContent = kind==="random"
+      ? `${keys.join(", ")} | ${total.toLocaleString()} paired random draws = ${total.toLocaleString()} conditions`
+      : `${keys.join(", ")} | ${levels.join(" × ")} = ${total.toLocaleString()} sweep conditions`;
   } catch (exc) { $("#preview").textContent = exc.message; }
 }
 function renderGroups() {
@@ -281,12 +320,18 @@ async function poll() {
 }
 async function renderResults() {
   const job=jobs.get(selectedJob);if(!job)return;
+  $("#output-location").textContent=`Results on Linux: ${meta.output_root}/${job.output}`;
   const label=$("#label-filter").value;
   const key=`${job.id}:${label}:${resultPage}:${job.state}:${job.completed}`;
   if(key===lastResultKey)return;
   const link=$("#summary-link");link.classList.toggle("hidden",job.mode!=="search");
+  const configLink=$("#config-link");
+  configLink.classList.toggle("hidden",job.mode==="inspect"||job.state==="running");
+  if(job.mode!=="inspect") configLink.href=fileUrl(job.id,
+    job.mode==="search"?"search_config.json":"config_metrics.json");
   if(job.mode!=="search"){
     $("#result-table tbody").replaceChildren();$("#result-count").textContent=job.message;
+    $("#prev-page").disabled=true;$("#next-page").disabled=true;
     if(job.state==="done" && job.trace) {
       if(job.mode==="baseline") showPdf(fileUrl(job.id,"trace.pdf"));
       else {
@@ -312,13 +357,17 @@ async function renderResults() {
 }
 function showPdf(url) {
   if($("#pdf-view").src!==new URL(url,location.href).href)$("#pdf-view").src=url;
+  $("#trace-download").href=url;
+  $("#trace-download").classList.remove("hidden");
   $("#pdf-view").classList.remove("hidden");
   $("#trace-area > p").classList.add("hidden");
 }
 
 function events() {
   $("#tabs").addEventListener("click", event => {const tab=event.target.closest("[data-tab]");if(tab)showTab(tab.dataset.tab)});
-  $("#role").addEventListener("change",async()=>{try{chooseOptions($("#model"),meta.roles[$("#role").value],meta.roles[$("#role").value][0]);await loadModel()}catch(exc){error(exc)}});
+  $("#role").addEventListener("change",async()=>{try{const role=$("#role").value;
+    chooseOptions($("#model"),meta.roles[role],savedModels[role]||meta.roles[role][0]);await loadModel()
+  }catch(exc){error(exc)}});
   $("#model").addEventListener("change",async()=>{try{await loadModel()}catch(exc){error(exc)}});
   $("#reset").addEventListener("click",async()=>{try{await loadModel()}catch(exc){error(exc)}});
   $("#baseline").addEventListener("click",async()=>{try{await startRun("baseline")}catch(exc){error(exc)}});
@@ -327,10 +376,16 @@ function events() {
     try{snapshotValues();const key=event.target.dataset.channel;
       state.disabled_channels=event.target.checked?state.disabled_channels.filter(k=>k!==key):[...state.disabled_channels,key];
       const spec=await api("/api/spec",state);$("#formula").textContent=spec.formula;
-      document.querySelector(`#parameters tr[data-key="${key}"]`)?.classList.toggle("off",!event.target.checked);
-      renderAxes();
+      renderParameters(spec);
+      if(!event.target.checked)groups=groups.filter(group=>!group.parameters.includes(key));
+      renderAxes();renderGroups();
     }catch(exc){error(exc)}
   });
+  $("#enable-all-channels").addEventListener("click",async()=>{try{
+    snapshotValues();state.disabled_channels=[];
+    const spec=await api("/api/spec",state);$("#formula").textContent=spec.formula;
+    renderChannels(spec);renderParameters(spec);renderAxes();notice("All channels on");
+  }catch(exc){error(exc)}});
   $("#apply-builder").addEventListener("click",async()=>{try{
     const channels={};for(const row of document.querySelectorAll("#builder-table tbody tr"))
       if(row.querySelector(".use").checked)channels[row.dataset.key]=row.querySelector(".source").value;
@@ -362,8 +417,15 @@ function events() {
     if(payload.format!=="ChannelCircuitLab.custom.v1"||!Array.isArray(payload.modules))throw Error("Unsupported module JSON");
     await reconfigure({...state,custom_modules:payload.modules},true,true);
   }catch(exc){error(exc)}finally{event.target.value=""}});
-  $("#axes").addEventListener("change",preview);
-  $("#parameters").addEventListener("input",event=>{if(event.target.classList.contains("points"))preview()});
+  $("#search-parameters").addEventListener("change",preview);
+  $("#search-parameters").addEventListener("input",event=>{if(event.target.classList.contains("points"))preview()});
+  $("#search-parameters").addEventListener("click",event=>{const button=event.target.closest(".reset-row");if(!button)return;
+    try{const row=button.closest("tr"),key=row.dataset.key,[lo,hi,dist]=currentSpec.ranges[key];
+      for(const [field,value] of [["value",currentSpec.parameters[key]],["low",lo],["high",hi],["dist",dist],["points",100]])
+        row.querySelector(`.${field}`).value=value;
+      snapshotValues();
+      renderParameters(currentSpec);renderAxes();notice(`${key}: default value and bounds restored`);
+    }catch(exc){error(exc)}});
   $("#kind").addEventListener("change",preview);
   $("#apply-all").addEventListener("click",()=>{try{
     snapshotValues();const count=number($("#all-points").value);
@@ -372,7 +434,7 @@ function events() {
       const samples=conditionCount(group.kind,group.parameters,p);return {...group,points:p,samples}});
     if(updated.reduce((sum,group)=>sum+group_total_local(group),0)>2000000)throw Error("Queued searches exceed 2,000,000 conditions");
     groups=updated;points=Object.fromEntries(Object.keys(points).map(key=>[key,count]));
-    document.querySelectorAll("#parameters .points").forEach(input=>input.value=count);
+    renderParameters(currentSpec);renderAxes();
     renderGroups();preview();notice(`Applied ${count} draws / levels to all parameters and searches`);
   }catch(exc){error(exc)}});
   $("#add-group").addEventListener("click",()=>{try{

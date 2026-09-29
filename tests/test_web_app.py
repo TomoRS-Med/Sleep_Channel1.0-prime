@@ -70,7 +70,17 @@ class BrowserInterface(unittest.TestCase):
                                                           "groups": [group], "workers": 2}))
         self.assertEqual(search["state"], "done", search["error"])
         self.assertEqual(search["total"], 2)
-        self.assertEqual(self.request("/api/results/" + search["id"])["total"], 2)
+        search_results = self.request("/api/results/" + search["id"])
+        self.assertEqual(search_results["total"], 2)
+        first = search_results["rows"][0]
+        inspected = self.completed(self.request("/api/inspect", {
+            "job": search["id"], "group": first["group"], "index": first["index"]}))
+        self.assertEqual(inspected["state"], "done", inspected["error"])
+        relative = f'{first["group"]}/candidate_{int(first["index"]):06d}/trace.pdf'
+        self.assertTrue(self.request(f'/api/file/{search["id"]}/{relative}', binary=True)
+                        .startswith(b"%PDF-"))
+        self.assertEqual(self.request("/api/results/" + search["id"])["rows"][0]["trace_path"],
+                         relative.removesuffix("/trace.pdf"))
         restored = JobManager(self.output.name)
         self.assertEqual(restored.get(baseline["id"])["state"], "done")
         self.assertEqual(restored.results(search["id"])["total"], 2)

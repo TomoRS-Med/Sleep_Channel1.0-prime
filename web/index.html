@@ -28,12 +28,13 @@
     <section id="values" class="panel visible">
       <div class="section-head"><div><h2>Values and bounds</h2><p>Edit representative values and the search range of each parameter.</p></div>
         <button id="reset">Reset selected model</button></div>
-      <div class="table-wrap"><table id="parameters"><thead><tr><th>Parameter</th><th>Baseline</th><th>Lower</th><th>Upper</th><th>Distribution</th><th>Draws / levels</th><th>Unit</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+      <div class="table-wrap"><table id="parameters"><thead><tr><th>Parameter</th><th>Baseline</th><th>Lower</th><th>Upper</th><th>Distribution</th><th>Draws / levels</th><th>Unit</th><th>Bounds</th><th>Channel</th></tr></thead><tbody></tbody></table></div>
       <div class="section-head"><div><h2>Fixed constants</h2><p>Values defined in the selected paper equation set.</p></div></div>
       <div class="table-wrap"><table id="fixed"><thead><tr><th>Constant</th><th>Value</th><th>Published value</th></tr></thead><tbody></tbody></table></div>
     </section>
     <section id="channels" class="panel">
       <h2>Channels</h2><p>Switch a published conductance off without removing its equation from the model.</p>
+      <button id="enable-all-channels">Turn all channels on</button>
       <div id="channel-list" class="card-grid"></div>
     </section>
     <section id="builder" class="panel">
@@ -49,11 +50,11 @@
     </section>
     <section id="search" class="panel">
       <h2>Combinations and run</h2>
-      <p>Select parameters together. Random pairs one independent draw from each axis per condition; sweep computes the Cartesian product.</p>
+      <p>1 Select parameters → 2 Set bounds and draws / levels → 3 Choose random or sweep. Random pairs independent draws; sweep computes the Cartesian product.</p>
+      <div class="table-wrap"><table id="search-parameters"><thead><tr><th>Use</th><th>Parameter</th><th>Baseline</th><th>Lower</th><th>Upper</th><th>Distribution</th><th>Draws / levels</th><th>Unit</th><th>Channel</th><th>Reset</th></tr></thead><tbody></tbody></table></div>
       <div class="toolbar"><label>All draws / levels <input id="all-points" type="number" min="1" max="1000" value="100"></label><button id="apply-all">Apply to all</button>
         <label>Mode <select id="kind"><option value="random">Random</option><option value="sweep">Sweep</option></select></label>
         <label>Sweep bounds <select id="basis"><option value="edited">Edited bounds</option><option value="paper">Paper multipliers</option></select></label></div>
-      <div id="axes" class="axis-grid"></div>
       <p id="preview" class="note"></p><button id="add-group">Add selected parameters as a search</button>
       <h3>Queued searches</h3><div id="groups"></div>
       <div class="toolbar runbar"><label>Worker processes <input id="workers" type="number" min="1" value="1"></label><span id="cpu-note"></span>
@@ -61,12 +62,13 @@
       <p class="note">Sampling seeds are generated automatically and recorded with the results. Each model runs for 20 s and uses the final 10 s for classification.</p>
     </section>
     <section id="results" class="panel">
-      <h2>Results and traces</h2><div class="toolbar"><label>Job <select id="job-select"></select></label>
+      <h2>Results and traces</h2><p id="output-location" class="note"></p><div class="toolbar"><label>Job <select id="job-select"></select></label>
         <label>Label <select id="label-filter"><option value="">All</option><option>SWO_candidate</option><option>SWO_few_spikes</option><option>AWAKE</option><option>RESTING</option><option>ELSE</option><option>ERROR</option></select></label>
-        <a id="summary-link" class="button-label hidden" href="#" download>Download summary CSV</a></div>
+        <a id="summary-link" class="button-label hidden" href="#" download>Download summary CSV</a>
+        <a id="config-link" class="button-label hidden" href="#" download>Download configuration</a></div>
       <p id="result-count" class="note"></p><div class="table-wrap"><table id="result-table"><thead><tr><th>Group</th><th>Index</th><th>Label</th><th>Peak Hz</th><th>Spikes / s</th><th>Choices</th><th>Trace</th></tr></thead><tbody></tbody></table></div>
       <div class="actions"><button id="prev-page">Previous</button><button id="next-page">Next</button></div>
-      <div id="trace-area"><p>Select a trace to preview its PDF.</p><iframe id="pdf-view" class="hidden" title="PDF trace"></iframe></div>
+      <div id="trace-area"><p>Select a trace to preview its PDF.</p><a id="trace-download" class="button-label hidden" href="#" download>Download trace PDF</a><iframe id="pdf-view" class="hidden" title="PDF trace"></iframe></div>
     </section>
     <section id="equations" class="panel"><h2>Equations</h2><pre id="formula"></pre></section>
     <section id="sources" class="panel"><h2>Sources and scope</h2><div id="source-text"></div></section>

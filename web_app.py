@@ -191,7 +191,8 @@ class JobManager:
                                   self._progress(job, n, total))
                 result["cell_role"] = cfg["role"]
                 if source_job is not None:
-                    out = self.root / source_job / row["group"] / f'candidate_{int(row["index"]):06d}'
+                    source_output = self.root / self.get(source_job)["output"]
+                    out = source_output / row["group"] / f'candidate_{int(row["index"]):06d}'
                 save_result(result, out)
                 job["trace"] = str((out / "trace.pdf").relative_to(self.root))
                 job["last_label"] = classify(result)["label"]
@@ -312,6 +313,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"roles": CELL_ROLE_MODELS, "sources": {key: channel_sources(key)
                            for key in CHANNEL_LABELS}, "channel_labels": CHANNEL_LABELS,
                            "cpus": cpu_count(), "default_workers": default_workers(),
+                           "output_root": str(self.server.manager.root),
                            "default": model_spec({})})
             elif path == "/api/jobs":
                 self._json({"jobs": self.server.manager.list_jobs()})
