@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Channel Circuit Lab 1.0 Prime</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <header>
+    <div><h1>Channel Circuit Lab <span>1.0 Prime</span></h1><p>Paper model search · Linux compute host</p></div>
+    <div class="header-actions"><label>Cell <select id="role"></select></label><label>Model <select id="model"></select></label>
+      <button id="baseline" class="primary">Representative trace</button></div>
+  </header>
+  <nav id="tabs" aria-label="App sections">
+    <button data-tab="values" class="selected">Values and bounds</button>
+    <button data-tab="channels">Channels</button>
+    <button data-tab="builder">Build model</button>
+    <button data-tab="custom">Custom equations</button>
+    <button data-tab="search">Combinations and run</button>
+    <button data-tab="results">Results and traces</button>
+    <button data-tab="equations">Equations</button>
+    <button data-tab="sources">Sources and scope</button>
+  </nav>
+  <main>
+    <section id="values" class="panel visible">
+      <div class="section-head"><div><h2>Values and bounds</h2><p>Edit representative values and the search range of each parameter.</p></div>
+        <button id="reset">Reset selected model</button></div>
+      <div class="table-wrap"><table id="parameters"><thead><tr><th>Parameter</th><th>Baseline</th><th>Lower</th><th>Upper</th><th>Distribution</th><th>Draws / levels</th><th>Unit</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+      <div class="section-head"><div><h2>Fixed constants</h2><p>Values defined in the selected paper equation set.</p></div></div>
+      <div class="table-wrap"><table id="fixed"><thead><tr><th>Constant</th><th>Value</th><th>Published value</th></tr></thead><tbody></tbody></table></div>
+    </section>
+    <section id="channels" class="panel">
+      <h2>Channels</h2><p>Switch a published conductance off without removing its equation from the model.</p>
+      <div id="channel-list" class="card-grid"></div>
+    </section>
+    <section id="builder" class="panel">
+      <h2>Build model</h2><p>Combine published channel modules. The resulting hybrid is an exploratory model; its source is stored in each result.</p>
+      <div class="actions"><button id="apply-builder" class="primary">Apply assembly</button><button id="use-published">Use published model</button></div>
+      <div class="table-wrap"><table id="builder-table"><thead><tr><th>Use</th><th>Channel</th><th>Equation source</th></tr></thead><tbody></tbody></table></div>
+    </section>
+    <section id="custom" class="panel">
+      <h2>Custom equations</h2><p>Enter current density in µA/cm². V is mV, time is ms, Na is mM, and Ca is µM. Use explicit multiplication and parentheses; ^ denotes exponentiation.</p>
+      <div class="actions"><button id="add-module">Add current module</button><button id="apply-modules" class="primary">Apply equations</button><button id="save-modules">Download module JSON</button>
+        <label class="button-label">Load module JSON<input id="load-modules" type="file" accept=".json,application/json"></label></div>
+      <div id="module-list"></div>
+    </section>
+    <section id="search" class="panel">
+      <h2>Combinations and run</h2>
+      <p>Select parameters together. Random pairs one independent draw from each axis per condition; sweep computes the Cartesian product.</p>
+      <div class="toolbar"><label>All draws / levels <input id="all-points" type="number" min="1" max="1000" value="100"></label><button id="apply-all">Apply to all</button>
+        <label>Mode <select id="kind"><option value="random">Random</option><option value="sweep">Sweep</option></select></label>
+        <label>Sweep bounds <select id="basis"><option value="edited">Edited bounds</option><option value="paper">Paper multipliers</option></select></label></div>
+      <div id="axes" class="axis-grid"></div>
+      <p id="preview" class="note"></p><button id="add-group">Add selected parameters as a search</button>
+      <h3>Queued searches</h3><div id="groups"></div>
+      <div class="toolbar runbar"><label>Worker processes <input id="workers" type="number" min="1" value="1"></label><span id="cpu-note"></span>
+        <button id="run-search" class="primary">Run search</button><button id="stop" disabled>Stop</button></div>
+      <p class="note">Sampling seeds are generated automatically and recorded with the results. Each model runs for 20 s and uses the final 10 s for classification.</p>
+    </section>
+    <section id="results" class="panel">
+      <h2>Results and traces</h2><div class="toolbar"><label>Job <select id="job-select"></select></label>
+        <label>Label <select id="label-filter"><option value="">All</option><option>SWO_candidate</option><option>SWO_few_spikes</option><option>AWAKE</option><option>RESTING</option><option>ELSE</option><option>ERROR</option></select></label>
+        <a id="summary-link" class="button-label hidden" href="#" download>Download summary CSV</a></div>
+      <p id="result-count" class="note"></p><div class="table-wrap"><table id="result-table"><thead><tr><th>Group</th><th>Index</th><th>Label</th><th>Peak Hz</th><th>Spikes / s</th><th>Choices</th><th>Trace</th></tr></thead><tbody></tbody></table></div>
+      <div class="actions"><button id="prev-page">Previous</button><button id="next-page">Next</button></div>
+      <div id="trace-area"><p>Select a trace to preview its PDF.</p><iframe id="pdf-view" class="hidden" title="PDF trace"></iframe></div>
+    </section>
+    <section id="equations" class="panel"><h2>Equations</h2><pre id="formula"></pre></section>
+    <section id="sources" class="panel"><h2>Sources and scope</h2><div id="source-text"></div></section>
+  </main>
+  <footer><div id="status">Ready</div><progress id="progress" max="100" value="0"></progress><span id="progress-text">0 / 0</span></footer>
+  <div id="toast" role="alert" class="hidden"></div>
+</body>
+</html>
