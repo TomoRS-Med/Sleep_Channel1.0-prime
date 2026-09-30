@@ -26,7 +26,7 @@ from paper_catalog import (CELL_ROLE_MODELS, CHANNEL_LABELS,
                            validate_ranges)
 from paper_engine import classify, save_result, simulate
 from paper_formulas import equations_for
-from paper_search import MAX_CONDITIONS, cpu_count, default_workers, group_total, run_search
+from paper_search import cpu_count, default_workers, group_total, run_search
 
 HERE = Path(__file__).resolve().parent
 ASSETS = HERE / "web"
@@ -92,16 +92,17 @@ def checked_config(payload, search=False):
         groups = payload.get("groups", [])
         if not isinstance(groups, list) or not groups:
             raise ValueError("Add at least one parameter combination")
-        if sum(group_total(group) for group in groups) > MAX_CONDITIONS:
-            raise ValueError(f"At most {MAX_CONDITIONS:,} conditions can run together")
         workers = int(payload.get("workers", default_workers()))
         if not 1 <= workers <= cpu_count():
             raise ValueError(f"Workers must be between 1 and {cpu_count()}")
         for group in groups:
             if not group["parameters"] or not set(group["parameters"]) <= keys:
                 raise ValueError("A combination has invalid parameter names")
-            if not 1 <= group_total(group) <= MAX_CONDITIONS:
-                raise ValueError("A combination has too many conditions")
+            if not all(int(group.get("points", {}).get(key, group["samples"])) >= 1
+                       for key in group["parameters"]):
+                raise ValueError("Each parameter needs a positive draw or sweep level count")
+            if group_total(group) < 1:
+                raise ValueError("A combination needs at least one condition")
     return {**built, "parameters": parameters, "fixed": fixed, "ranges": ranges,
             "disabled_channels": disabled}
 
@@ -246,7 +247,7 @@ class JobManager:
         csv_file = output / "summary.csv"
         if not csv_file.is_file():
             return {"rows": [], "total": 0}
-        offset = max(0, min(int(offset), MAX_CONDITIONS))
+        offset = max(0, int(offset))
         limit = max(1, min(int(limit), 500))
         rows = []
         matched = 0

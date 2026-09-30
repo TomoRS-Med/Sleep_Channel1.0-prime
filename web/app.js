@@ -67,8 +67,8 @@ function snapshotValues() {
     state.ranges[key] = [number(row.querySelector(".low").value),
       number(row.querySelector(".high").value), row.querySelector(".dist").value, old[3]];
     points[key] = number(row.querySelector(".points").value);
-    if (!Number.isInteger(points[key]) || points[key] < 1 || points[key] > 1000)
-      throw Error(`${key}: draws / levels must be an integer from 1 to 1000`);
+    if (!Number.isSafeInteger(points[key]) || points[key] < 1)
+      throw Error(`${key}: draws / levels must be a positive whole number`);
   }
   for (const row of document.querySelectorAll("#fixed tbody tr"))
     state.fixed[row.dataset.key] = number(row.querySelector("input").value);
@@ -150,7 +150,7 @@ function renderParameters(spec) {
       <td><input class="low" type="number" step="any" value="${escapeHtml(lo)}"></td>
       <td><input class="high" type="number" step="any" value="${escapeHtml(hi)}"></td>
       <td><select class="dist">${["log","uniform","neglog"].map(d => `<option value="${d}" ${d===dist?"selected":""}>${d}</option>`).join("")}</select></td>
-      <td><input class="points" type="number" min="1" max="1000" value="${points[key]}"></td>
+      <td><input class="points" type="number" min="1" step="1" value="${points[key]}"></td>
       <td>${escapeHtml(unit)}</td><td>${JSON.stringify(state.ranges[key])===JSON.stringify(spec.ranges[key])?"Default bounds":"Edited"}</td>
       <td>${off?"Off":key in channels?"On":"Custom"}</td></tr>`;
   }).join("");
@@ -184,7 +184,7 @@ function renderAxes() {
       <td><input class="low" type="number" step="any" value="${escapeHtml(lo)}"></td>
       <td><input class="high" type="number" step="any" value="${escapeHtml(hi)}"></td>
       <td><select class="dist">${["log","uniform","neglog"].map(d=>`<option value="${d}" ${d===dist?"selected":""}>${d}</option>`).join("")}</select></td>
-      <td><input class="points" type="number" min="1" max="1000" value="${points[key]}"></td>
+      <td><input class="points" type="number" min="1" step="1" value="${points[key]}"></td>
       <td>${escapeHtml(unit)}</td><td>${off?"Off":key in channels?"On":"Custom"}</td>
       <td><button class="reset-row" type="button">Reset</button></td></tr>`;
   }).join("");
@@ -197,8 +197,10 @@ function conditionCount(kind, keys, counts) {
   if (kind === "random" && new Set(values).size !== 1)
     throw Error("Random requires the same draw count for every selected parameter");
   const total = kind === "random" ? values[0] : values.reduce((a,b) => a*b, 1);
-  if (!Number.isSafeInteger(total) || total < 1 || total > 2000000)
-    throw Error("This combination exceeds 2,000,000 conditions");
+  if (!values.every(value => Number.isSafeInteger(value) && value >= 1))
+    throw Error("Draws / levels must be positive whole numbers");
+  if (!Number.isSafeInteger(total) || total < 1)
+    throw Error("The condition count exceeds the browser's exact integer range");
   return total;
 }
 function preview() {
@@ -429,10 +431,11 @@ function events() {
   $("#kind").addEventListener("change",preview);
   $("#apply-all").addEventListener("click",()=>{try{
     snapshotValues();const count=number($("#all-points").value);
-    if(!Number.isInteger(count)||count<1||count>1000)throw Error("Enter an integer from 1 to 1000");
+    if(!Number.isSafeInteger(count)||count<1)throw Error("Enter a positive whole number");
     const updated=groups.map(group=>{const p=Object.fromEntries(group.parameters.map(key=>[key,count]));
       const samples=conditionCount(group.kind,group.parameters,p);return {...group,points:p,samples}});
-    if(updated.reduce((sum,group)=>sum+group_total_local(group),0)>2000000)throw Error("Queued searches exceed 2,000,000 conditions");
+    if(!Number.isSafeInteger(updated.reduce((sum,group)=>sum+group_total_local(group),0)))
+      throw Error("The queued condition count exceeds the browser's exact integer range");
     groups=updated;points=Object.fromEntries(Object.keys(points).map(key=>[key,count]));
     renderParameters(currentSpec);renderAxes();
     renderGroups();preview();notice(`Applied ${count} draws / levels to all parameters and searches`);
@@ -447,7 +450,8 @@ function events() {
     const selected=Object.fromEntries(axes.map(key=>[key,points[key]]));
     groups.push({name:`group_${index}`,kind,basis,samples,parameters:axes,points:selected,
       ranges:Object.fromEntries(axes.map(key=>[key,[...state.ranges[key]]] ))});
-    if(groups.reduce((sum,g)=>sum+group_total_local(g),0)>2000000){groups.pop();throw Error("Queued searches exceed 2,000,000 conditions")}
+    if(!Number.isSafeInteger(groups.reduce((sum,g)=>sum+group_total_local(g),0))){
+      groups.pop();throw Error("The queued condition count exceeds the browser's exact integer range")}
     renderGroups();notice(`${samples.toLocaleString()} conditions added`);
   }catch(exc){error(exc)}});
   $("#groups").addEventListener("click",event=>{const b=event.target.closest("[data-remove-group]");if(b){groups.splice(Number(b.dataset.removeGroup),1);renderGroups()}});

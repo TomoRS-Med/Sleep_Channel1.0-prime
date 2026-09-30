@@ -26,7 +26,7 @@ from paper_catalog import (CELL_ROLE_MODELS, CHANNEL_LABELS,
                            effective_model, get_model, validate_assignment)
 from paper_engine import save_result, simulate
 from paper_formulas import equations_for
-from paper_search import MAX_CONDITIONS, cpu_count, default_workers, group_total, run_search
+from paper_search import cpu_count, default_workers, group_total, run_search
 
 
 class ParameterDialog(tk.Toplevel):
@@ -82,7 +82,7 @@ class ParameterDialog(tk.Toplevel):
                     or dist == "log" and low <= 0
                     or dist == "neglog" and high >= 0
                     or not self.allow_negative and self.key not in ("x", "y") and value < 0
-                    or points is not None and not 1 <= points <= 1000):
+                    or points is not None and points < 1):
                 raise ValueError("Check the value, bounds, distribution and draw / level count")
             self.result = value, low, high, dist, points
             self.destroy()
@@ -762,18 +762,13 @@ class PaperApp(tk.Tk):
     def apply_all_points(self):
         try:
             count = int(self.all_points_var.get())
-            if not 1 <= count <= 1000:
-                raise ValueError("Enter a whole number from 1 to 1000")
+            if count < 1:
+                raise ValueError("Enter a positive whole number")
             new_groups = copy.deepcopy(self.groups)
             for group in new_groups:
                 group["points"] = {key: count for key in group["parameters"]}
                 group["samples"] = (count if group["kind"] == "random"
                                     else count ** len(group["parameters"]))
-                if group_total(group) > MAX_CONDITIONS:
-                    raise ValueError(f'{group["name"]} would exceed '
-                                     f'{MAX_CONDITIONS:,} conditions; choose fewer levels')
-            if sum(group_total(group) for group in new_groups) > MAX_CONDITIONS:
-                raise ValueError(f"Queued searches would exceed {MAX_CONDITIONS:,} conditions")
         except ValueError as exc:
             messagebox.showerror("Draws / levels", str(exc), parent=self)
             return
@@ -871,8 +866,8 @@ class PaperApp(tk.Tk):
             if kind == "random" and len(set(points.values())) != 1:
                 raise ValueError("Random requires equal draw counts for every selected parameter.")
             samples = next(iter(points.values())) if kind == "random" else math.prod(points.values())
-            if not 1 <= samples <= MAX_CONDITIONS:
-                raise ValueError(f"Choose 1–{MAX_CONDITIONS:,} conditions.")
+            if samples < 1:
+                raise ValueError("Choose a positive number of conditions")
         except ValueError as exc:
             messagebox.showerror("Condition count", str(exc), parent=self)
             return
@@ -962,8 +957,6 @@ class PaperApp(tk.Tk):
             if not self.groups:
                 raise ValueError("Select parameters and add a search on the Combinations tab")
             total = sum(group_total(group) for group in self.groups)
-            if total > MAX_CONDITIONS:
-                raise ValueError(f"The search exceeds {MAX_CONDITIONS:,} conditions")
             workers = int(self.workers_var.get())
             if not 1 <= workers <= self.cpus:
                 raise ValueError(f"Worker count must be between 1 and {self.cpus}")

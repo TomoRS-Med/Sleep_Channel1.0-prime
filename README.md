@@ -8,4 +8,6 @@ It includes the Tatsuki AN, Sato NAN/FNAN, Yoshida SAN, and Yamada RAN equation 
 
 Every model runs for 20 seconds and classifies only the last 10 seconds. Default search counts are 100 per parameter; for two parameters this gives 100 paired random conditions or 10,000 sweep conditions. **Apply to all** changes the counts together. Random seeds are generated and saved automatically. Search jobs can use multiple CPU processes. Saved plots are vector PDF; Arial is used when installed on the compute host, with a fallback font otherwise.
 
+Draw counts and search conditions have no preset cap. The browser requires counts it can represent exactly; large searches can take a long time and use substantial disk space. The Stop button keeps completed CSV rows.
+
 The equation and parameter sources are listed in [PAPER_PROVENANCE.md](PAPER_PROVENANCE.md).

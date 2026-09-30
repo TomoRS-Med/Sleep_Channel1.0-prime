@@ -3,6 +3,7 @@ import csv
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -223,6 +224,42 @@ class PaperModels(unittest.TestCase):
         tuples = {tuple(choice_indices(grid, i, 0, 0).values()) for i in range(12)}
         self.assertEqual(len(tuples), 12)
         self.assertIn((1, 2, 1), tuples)
+
+    def test_large_search_counts_and_deterministic_pairing(self):
+        model = "Sato 2025 NAN"
+        ranges = get_model(model)["ranges"]
+        keys = ["gKNa", "tauNa"]
+        count = 12_001
+        random_group = {"name": "large_random", "kind": "random", "samples": count,
+                        "parameters": keys, "points": dict.fromkeys(keys, count)}
+        self.assertEqual(group_total(random_group), count)
+        choices = [choice_indices(random_group, i, 416, 0) for i in range(count)]
+        for key in keys:
+            self.assertEqual({row[key] for row in choices}, set(range(count)))
+        first = candidate_parameters(model, ranges, random_group, 0, 416, 0)
+        last = candidate_parameters(model, ranges, random_group, count-1, 416, 0)
+        self.assertEqual(first, candidate_parameters(model, ranges, random_group, 0, 416, 0))
+        for row in (first, last):
+            for key in keys:
+                self.assertTrue(ranges[key][0] <= row[key] <= ranges[key][1])
+
+        sweep_group = {**random_group, "name": "large_sweep", "kind": "sweep",
+                       "basis": "edited", "samples": count**2}
+        self.assertGreater(group_total(sweep_group), 2_000_000)
+        self.assertEqual(choice_indices(sweep_group, count**2-1, 416, 0),
+                         dict.fromkeys(keys, count-1))
+        self.assertEqual(candidate_parameters(model, ranges, sweep_group,
+                                              count**2-1, 416, 0)[keys[0]], ranges[keys[0]][1])
+
+        stop = threading.Event()
+        stop.set()
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(run_search(model, ranges, [sweep_group], directory,
+                                        workers=1, master_seed=416, retain=(), stop=stop), [])
+            status = json.loads((Path(directory)/"status.json").read_text())
+            self.assertEqual(status["total"], count**2)
+            self.assertEqual(status["completed"], 0)
+            self.assertTrue(status["stopped"])
 
     def test_multiaxis_sweep_runs_each_joint_condition_once(self):
         model = "Yoshida 2018 SAN"

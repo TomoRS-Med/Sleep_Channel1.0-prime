@@ -18,7 +18,7 @@ from paper_catalog import (effective_model, validate_assignment, validate_ranges
 from paper_engine import classify, save_result, simulate
 from custom_equations import compile_modules, module_parameters, module_ranges
 
-MAX_CONDITIONS = 2_000_000
+_CACHED_DRAW_LIMIT = 10_000
 
 
 def cpu_count():
@@ -58,11 +58,32 @@ def choice_indices(group, index, master_seed, group_index):
     choices = {}
     for axis, key in enumerate(keys):
         count = point_count(group, key)
-        rng = np.random.default_rng(np.random.SeedSequence(
-            [master_seed, group_index, axis, 0]))
         # Pair each independently drawn value once without a Cartesian product.
-        choices[key] = int(rng.permutation(count)[index])
+        if count <= _CACHED_DRAW_LIMIT:
+            choices[key] = int(_permutation(count, master_seed, group_index, axis)[index])
+        else:
+            stride, offset = _affine_permutation(count, master_seed, group_index, axis)
+            choices[key] = (stride*index + offset) % count
     return choices
+
+
+@lru_cache(maxsize=64)
+def _permutation(count, master_seed, group_index, axis):
+    rng = np.random.default_rng(np.random.SeedSequence(
+        [master_seed, group_index, axis, 0]))
+    return rng.permutation(count)
+
+
+@lru_cache(maxsize=64)
+def _affine_permutation(count, master_seed, group_index, axis):
+    # A seeded bijection keeps large paired searches constant in memory.
+    rng = np.random.default_rng(np.random.SeedSequence(
+        [master_seed, group_index, axis, 0]))
+    offset = int(rng.bit_generator.random_raw()) % count
+    stride = 1 + int(rng.bit_generator.random_raw()) % (count-1)
+    while math.gcd(stride, count) != 1:
+        stride = stride % (count-1) + 1
+    return stride, offset
 
 
 @lru_cache(maxsize=1024)
@@ -80,6 +101,31 @@ def _grid(low, high, distribution, count, basis, baseline, bifurcation, shift):
     return np.linspace(low, high, count)
 
 
+def _grid_at(low, high, distribution, count, basis, baseline, bifurcation, shift, index):
+    if count <= _CACHED_DRAW_LIMIT:
+        return float(_grid(low, high, distribution, count, basis, baseline,
+                           bifurcation, shift)[index])
+    if index in (0, count-1):
+        if basis == "paper":
+            return (baseline + (-45.0 if index == 0 else 45.0) if shift else
+                    baseline*bifurcation[0 if index == 0 else 1])
+        return low if index == 0 else high
+    fraction = index / (count-1)
+    if basis == "paper":
+        if shift:
+            return baseline - 45.0 + 90.0*fraction
+        if baseline <= 0:
+            raise ValueError("A zero baseline needs an edited-range sweep")
+        low, high = bifurcation
+    if distribution == "neglog" and basis != "paper":
+        value = -math.exp(math.log(-low) + (math.log(-high)-math.log(-low))*fraction)
+    elif distribution == "log" or basis == "paper":
+        value = math.exp(math.log(low) + (math.log(high)-math.log(low))*fraction)
+    else:
+        value = low + (high-low)*fraction
+    return baseline*value if basis == "paper" else value
+
+
 @lru_cache(maxsize=1024)
 def _random_draws(low, high, distribution, count, master_seed, group_index, axis):
     rng = np.random.default_rng(np.random.SeedSequence(
@@ -89,6 +135,19 @@ def _random_draws(low, high, distribution, count, master_seed, group_index, axis
     if distribution == "neglog":
         return -(10.0 ** rng.uniform(np.log10(-high), np.log10(-low), count))
     return rng.uniform(low, high, count)
+
+
+def _random_at(low, high, distribution, count, master_seed, group_index, axis, index):
+    if count <= _CACHED_DRAW_LIMIT:
+        return float(_random_draws(low, high, distribution, count,
+                                   master_seed, group_index, axis)[index])
+    rng = np.random.default_rng(np.random.SeedSequence(
+        [master_seed, group_index, axis, 1, index]))
+    if distribution == "log":
+        return float(10.0 ** rng.uniform(np.log10(low), np.log10(high)))
+    if distribution == "neglog":
+        return float(-(10.0 ** rng.uniform(np.log10(-high), np.log10(-low))))
+    return float(rng.uniform(low, high))
 
 
 def candidate_parameters(model_name, ranges, group, index, master_seed, group_index,
@@ -106,15 +165,14 @@ def candidate_parameters(model_name, ranges, group, index, master_seed, group_in
     for axis, key in enumerate(keys):
         lo, hi, distribution, _ = domains[key]
         if group["kind"] == "random":
-            values = _random_draws(lo, hi, distribution, point_count(group, key),
-                                   master_seed, group_index, axis)
+            base[key] = _random_at(lo, hi, distribution, point_count(group, key),
+                                   master_seed, group_index, axis, choices[key])
         else:
             if group.get("basis", "edited") == "paper" and key not in spec["parameters"]:
                 raise ValueError("Custom parameters use edited sweep bounds")
-            values = _grid(lo, hi, distribution, point_count(group, key),
-                           group.get("basis", "edited"), base[key],
-                           spec["bifurcation"], key in ("x", "y"))
-        base[key] = float(values[choices[key]])
+            base[key] = _grid_at(lo, hi, distribution, point_count(group, key),
+                                 group.get("basis", "edited"), base[key],
+                                 spec["bifurcation"], key in ("x", "y"), choices[key])
     return (base, {key: choices[key]+1 for key in keys}) if return_indices else base
 
 
@@ -179,17 +237,16 @@ def run_search(model_name, ranges, groups, output, workers=None, master_seed=Non
         validate_ranges(search_spec, {**ranges, **group.get("ranges", {})}, [group["parameters"]])
         if group["kind"] not in ("random", "sweep"):
             raise ValueError("Select random or sweep for each combination")
-        if not all(1 <= point_count(group, key) <= 1000 for key in group["parameters"]):
-            raise ValueError("Each parameter needs between 1 and 1000 draws or sweep levels")
-        if not 1 <= group_total(group) <= MAX_CONDITIONS:
-            raise ValueError(f"Each combination must contain 1–{MAX_CONDITIONS:,} conditions")
+        if not group["parameters"] or not all(point_count(group, key) >= 1
+                                               for key in group["parameters"]):
+            raise ValueError("Each parameter needs a positive draw or sweep level count")
+        if group_total(group) < 1:
+            raise ValueError("Each combination needs at least one condition")
         if group["kind"] == "sweep" and group.get("basis", "paper") not in ("paper", "edited"):
             raise ValueError("Sweep basis must be paper or edited")
         if (composition is not None or set(group["parameters"]) & set(extras)) and (
                 group["kind"] == "sweep" and group.get("basis", "paper") != "edited"):
             raise ValueError("Custom parameters and assemblies use edited sweep bounds")
-    if sum(group_total(group) for group in groups) > MAX_CONDITIONS:
-        raise ValueError(f"A search can contain at most {MAX_CONDITIONS:,} conditions")
     workers = default_workers() if workers is None else int(workers)
     if not 1 <= workers <= cpu_count():
         raise ValueError(f"Workers must be between 1 and {cpu_count()}")

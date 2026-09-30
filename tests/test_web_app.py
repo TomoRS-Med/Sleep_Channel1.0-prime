@@ -11,7 +11,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from web_app import Handler, JobManager
+from web_app import Handler, JobManager, checked_config
 
 
 class BrowserInterface(unittest.TestCase):
@@ -84,6 +84,18 @@ class BrowserInterface(unittest.TestCase):
         restored = JobManager(self.output.name)
         self.assertEqual(restored.get(baseline["id"])["state"], "done")
         self.assertEqual(restored.results(search["id"])["total"], 2)
+
+    def test_browser_accepts_search_above_previous_condition_cap(self):
+        default = self.request("/api/bootstrap")["default"]
+        config = {key: default[key] for key in
+                  ("role", "model", "composition", "custom_modules", "parameters", "fixed", "ranges")}
+        axes = ["gK", "gLeak"]
+        count = 1_500
+        group = {"name": "large_grid", "kind": "sweep", "basis": "edited",
+                 "samples": count**2, "parameters": axes,
+                 "points": dict.fromkeys(axes, count)}
+        self.assertEqual(checked_config({**config, "groups": [group], "workers": 1},
+                                        search=True)["model"], config["model"])
 
 
 if __name__ == "__main__":
